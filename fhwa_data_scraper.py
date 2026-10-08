@@ -41,6 +41,7 @@ import re
 import time
 import traceback
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import requests
@@ -112,7 +113,7 @@ def clean_state_name(raw: str) -> str:
 # Table Parsers
 # ===========================================================================
 
-def read_table(xl, year: int, col_map: dict) -> pd.DataFrame:
+def read_table(xl, year: int, col_map: dict) -> pd.DataFrame | None:
     """
     Parse a single FHWA Excel table into a clean dataframe.
 
@@ -131,7 +132,8 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame:
     sheet = None
     sheet_used = None
     for sheet_name in ['A', 'B']:
-        for engine in ['xlrd', 'openpyxl']:
+        engines: list[Literal["xlrd", "openpyxl"]] = ["xlrd", "openpyxl"]
+        for engine in engines:
             try:
                 xl.seek(0)
                 candidate = pd.read_excel(xl, header=None,
@@ -139,7 +141,7 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame:
                                         engine=engine)
                 candidate = candidate.replace("", float("nan"))
                 candidate = candidate.dropna(axis=1, how='all')
-                candidate.columns = range(candidate.shape[1])
+                candidate.columns = list(range(candidate.shape[1]))
                 
                 alabama_found = False
                 for c in candidate.columns:
@@ -152,7 +154,7 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame:
                     sheet = candidate
                     sheet_used = sheet_name
                     break
-            except Exception as e:
+            except Exception:
                 continue
         if sheet is not None:
             break
@@ -167,12 +169,16 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame:
         for k, v in col_map.items()
     }
 
-    state_col = None
-    for col in sheet.columns:
+    state_col: int | None = None
+    for col in range(n_cols):
         col_vals = sheet[col].fillna("").astype(str).tolist()
         if any(v.upper().startswith("ALABAMA") for v in col_vals):
             state_col = col
             break
+
+    if state_col is None:
+        print(f" WARNING: Could not find state column in {year}")
+        return None
 
     # find the starting row for each table (data may be formatted slightly differently throughout the data years)
     col0 = sheet[state_col].fillna("").astype(str).tolist()
@@ -185,7 +191,7 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame:
         return None
 
     # selecting just state names and total disbursements
-    cols_to_select = [state_col] + list(resolved_cols.values())
+    cols_to_select: list[int] = [state_col] + list(resolved_cols.values())
     sheet = sheet.iloc[(starting_row):(last_row + 1), cols_to_select]
 
     # renaming remaining columns
@@ -205,12 +211,12 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame:
 
     return sheet
 
-def read_sf4(xl, year: int) -> pd.DataFrame:
+def read_sf4(xl, year: int) -> pd.DataFrame | None:
     """Parse SF-4 disbursements table."""
     col_map = {"total_disbursements": 7}
     return read_table(xl, year, col_map)
 
-def read_fa4(xl, year: int) -> pd.DataFrame:
+def read_fa4(xl, year: int) -> pd.DataFrame | None:
     """Parse FA-4 apportionments table."""
     col_map = {"total_apportionment": -1}
     df = read_table(xl, year, col_map)
@@ -224,7 +230,7 @@ def read_fa4(xl, year: int) -> pd.DataFrame:
 
     return df
 
-def read_vm2(xl, year: int) -> pd.DataFrame:
+def read_vm2(xl, year: int) -> pd.DataFrame | None:
     """Parse VM-2 vehicle miles traveled table."""
     col_map = {"rural_interstate": 1, "urban_interstate": 8, "total_vmt": -1}
     df = read_table(xl, year, col_map)
