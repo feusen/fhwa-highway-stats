@@ -103,9 +103,11 @@ def clean_state_name(raw: str) -> str:
     """remove footnote markers: digits, slashes, asterisks, superscripts"""
     if pd.isna(raw):
         return ""
-    cleaned = re.sub(r"[0-9/\*\†]+$", "", raw).strip()
+    # footnotes can stack with spaces or parens, e.g. "Indiana  2/  3/" or "Texas (2)"
+    cleaned = re.sub(r"[\s0-9/\*\†()]+$", "", raw).strip()
     # standardize DC variants to a single form
-    if cleaned.upper() in ("DIST. OF COLUMBIA", "DIST OF COLUMBIA", "DISTRICT OF COLUMBIA", "D.C."):
+    if cleaned.upper() in ("DIST. OF COLUMBIA", "DIST OF COLUMBIA", "DISTRICT OF COLUMBIA",
+                           "DIST. OF COL.", "DIST OF COL", "D.C."):
         return "District of Columbia"
     return cleaned
 
@@ -120,8 +122,11 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame | None:
     Args:
         xl: File path or file-like object for the Excel file
         year: Data year (added as a col to the output)
-        col_map: Dict mapping output column names to Excel column indices.
-                    Use -1 for the last column. Example: {"total": 7}
+        col_map: Dict mapping output column names to either an Excel column
+                    index (use -1 for the last column), or a (label, n) tuple
+                    selecting the n-th column (0-based) whose header text
+                    contains `label` as a whole word.
+                    Example: {"total": 7, "urban_interstate": ("INTERSTATE", 1)}
 
     Returns:
         Dataframe with cols [state] + col_map.keys() + [year]
@@ -164,10 +169,6 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame | None:
         return None
 
     n_cols = sheet.shape[1]
-    resolved_cols = {
-        k: (v if v >= 0 else n_cols + v)
-        for k, v in col_map.items()
-    }
 
     state_col: int | None = None
     for col in range(n_cols):
@@ -189,6 +190,21 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame | None:
     except StopIteration:
         print(f" WARNING: Could not find state rows in {year}")
         return None
+
+    # resolve column positions; header labels are matched in the rows just above Alabama
+    header_rows = sheet.iloc[max(0, starting_row - 10):starting_row]
+    header_text = [" ".join(header_rows[c].dropna().astype(str)).upper() for c in range(n_cols)]
+    resolved_cols = {}
+    for k, v in col_map.items():
+        if isinstance(v, tuple):
+            label, n = v
+            matches = [c for c in range(n_cols) if re.search(rf"\b{label}\b", header_text[c])]
+            if len(matches) <= n:
+                print(f" WARNING: No column #{n} labeled '{label}' in {year}")
+                return None
+            resolved_cols[k] = matches[n]
+        else:
+            resolved_cols[k] = v if v >= 0 else n_cols + v
 
     # selecting just state names and total disbursements
     cols_to_select: list[int] = [state_col] + list(resolved_cols.values())
@@ -213,12 +229,21 @@ def read_table(xl, year: int, col_map: dict) -> pd.DataFrame | None:
 
 def read_sf4(xl, year: int) -> pd.DataFrame | None:
     """Parse SF-4 disbursements table."""
-    col_map = {"total_disbursements": 7}
-    return read_table(xl, year, col_map)
+    col_map = {"total_disbursements": 7, "bond_retirement": ("RETIREMENT", 0)}
+    df = read_table(xl, year, col_map)
+
+    if df is not None:
+        # debt refinancing can double total disbursements in a single year,
+        # so also keep a measure of spending net of bond retirement
+        df["disbursements_ex_bonds"] = df["total_disbursements"] - df["bond_retirement"]
+        df = df.drop(columns=["bond_retirement"])
+
+    return df
 
 def read_fa4(xl, year: int) -> pd.DataFrame | None:
     """Parse FA-4 apportionments table."""
-    col_map = {"total_apportionment": -1}
+    # first TOTAL column; some years (e.g. 2015) append prior-year and percent-change columns
+    col_map = {"total_apportionment": ("TOTAL", 0)}
     df = read_table(xl, year, col_map)
 
     if df is not None:
@@ -232,7 +257,8 @@ def read_fa4(xl, year: int) -> pd.DataFrame | None:
 
 def read_vm2(xl, year: int) -> pd.DataFrame | None:
     """Parse VM-2 vehicle miles traveled table."""
-    col_map = {"rural_interstate": 1, "urban_interstate": 8, "total_vmt": -1}
+    # 2009+ adds a rural freeways/expressways column, so locate interstate columns by header
+    col_map = {"rural_interstate": ("INTERSTATE", 0), "urban_interstate": ("INTERSTATE", 1), "total_vmt": -1}
     df = read_table(xl, year, col_map)
 
     if df is not None:
