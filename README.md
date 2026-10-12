@@ -8,7 +8,7 @@ builds a SQLite database with a state-pair comparison view.
 
 | Table | Measure | Units |
 |-------|---------|-------|
-| SF-4 | State highway agency disbursements | Thousands of dollars |
+| SF-4 | State highway agency disbursements, total and excluding bond retirement | Thousands of dollars |
 | FA-4 | Federal-aid apportionments | Thousands of dollars |
 | VM-2 | Interstate and total vehicle miles traveled | Millions of miles |
 
@@ -30,13 +30,22 @@ spending, apportionments, and interstate VMT share for every state
 pair and year. `fhwa_database.py` also exports the view to
 `fhwa_data/friction_vars.csv`.
 
+Spending appears twice: `spending_gap` uses total disbursements, and
+`spending_gap_ex_bonds` excludes bond retirement. Debt refinancing can
+double a state's total disbursements in a single year (e.g. New Jersey
+2005, Utah 2004), so the ex-bonds measure better reflects actual
+highway spending.
+
 ## Known data gaps
 
 - SF-4 2008: not published in a structured format
-- VM-2 2008, 2014: District of Columbia absent from the published table
-- VM-2 2018: Ohio and Massachusetts absent from the published table
-- FA-4 2012–2018: read from sheet B due to formula errors in sheet A,
-  converted from dollars to thousands for consistency
+- SF-4 (all years): District of Columbia absent from the published table
+- FA-4: when sheet A can't be read, sheet B is used and converted from
+  dollars to thousands for consistency
+- FA-4 year labels are the edition year, not the fiscal year: edition N
+  usually covers FY N+1, but the 2015 and 2016 editions both cover FY 2016,
+  so those two years are identical. 2013 and 2014 (FY 2014 and FY 2015)
+  are also identical because FY 2015 was apportioned at FY 2014 levels
 - 1997–1999: not available in a structured format; excluded
 
 ## Implementation notes

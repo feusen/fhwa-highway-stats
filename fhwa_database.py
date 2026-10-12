@@ -121,6 +121,7 @@ def build_database(sf4, fa4, vm2):
                      
                 -- spending gap (SF4)
                 ABS(a.total_disbursements - b.total_disbursements) as spending_gap,
+                ABS(a.disbursements_ex_bonds - b.disbursements_ex_bonds) as spending_gap_ex_bonds,
                      
                 -- apportionment gap (FA4)
                 ABS(fa_a.total_apportionment - fa_b.total_apportionment) as apportionment_gap,
@@ -165,6 +166,7 @@ if __name__ == "__main__":
         gaps = pd.read_sql("""
             SELECT border_id, year,
                     spending_gap,
+                    spending_gap_ex_bonds,
                     apportionment_gap,
                            interstate_share_gap
             FROM state_pair_gaps
